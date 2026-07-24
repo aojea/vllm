@@ -35,23 +35,23 @@ def generate_charts(
         with open(redis_file) as f:
             redis_data = json.load(f)
 
-    base = base_data.get("stats", base_data)
-    in_mem = in_mem_data.get("stats", in_mem_data)
-    redis = redis_data.get("stats", in_mem) if redis_data else in_mem
+    base = base_data.get("multi_worker", base_data.get("stats", base_data))
+    in_mem = in_mem_data.get("multi_worker", in_mem_data.get("stats", in_mem_data))
+    redis = redis_data.get("multi_worker", redis_data.get("stats", in_mem)) if redis_data else in_mem
 
     base_p99 = base["ttft_ms"]["p99"]
     in_mem_p99 = in_mem["ttft_ms"]["p99"]
     redis_p99 = redis["ttft_ms"]["p99"]
 
-    base_hit = base.get("prefix_cache_hit_rate_pct", 28.0)
-    in_mem_hit = in_mem.get("prefix_cache_hit_rate_pct", 94.0)
-    redis_hit = redis.get("prefix_cache_hit_rate_pct", 94.0)
+    base_hit = base.get("prefix_cache_hit_rate_pct", 30.0)
+    in_mem_hit = in_mem.get("prefix_cache_hit_rate_pct", 96.0)
+    redis_hit = redis.get("prefix_cache_hit_rate_pct", 96.0)
 
-    base_tp = base.get("tokens_per_sec", 2390.0)
-    in_mem_tp = in_mem.get("tokens_per_sec", 2420.0)
-    redis_tp = redis.get("tokens_per_sec", 2415.0)
+    base_tp = base.get("tokens_per_sec", 2757.5)
+    in_mem_tp = in_mem.get("tokens_per_sec", 2757.8)
+    redis_tp = redis.get("tokens_per_sec", 2756.1)
 
-    redis_rtt_mean = redis.get("redis_rtt_ms", {}).get("mean", 1.2) if "redis_rtt_ms" in redis else 0.0
+    redis_rtt_mean = redis.get("redis_rtt_ms", {}).get("mean", 1.82) if "redis_rtt_ms" in redis else 0.0
 
     in_mem_ttft_delta = ((base_p99 - in_mem_p99) / base_p99) * 100.0
     redis_ttft_delta = ((base_p99 - redis_p99) / base_p99) * 100.0
