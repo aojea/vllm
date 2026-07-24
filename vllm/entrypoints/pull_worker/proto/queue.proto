@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package vllm.entrypoints.pull_worker.proto;
+
+// PullWorkerService defines the gRPC interface for disaggregated pull-based workers
+// interacting with a central queue orchestrator.
+service PullWorkerService {
+    // Handshake and registration of worker capabilities upon startup.
+    rpc RegisterWorker (RegisterWorkerRequest) returns (RegisterWorkerResponse);
+
+    // Periodic heartbeat reporting standard and optional extended metrics.
+    rpc ReportStatus (WorkerStatus) returns (ReportStatusResponse);
+
+    // Bidirectional credit-based task pull stream. Worker pushes TaskGrantRequest
+    // (slots_available), and Queue Server streams down GenerateRequest messages.
+    rpc StreamTasks (stream TaskGrantRequest) returns (stream GenerateRequest);
+
+    // Unary alternative for long-polling task pull.
+    rpc PullTask (TaskGrantRequest) returns (GenerateRequest);
+
+    // Stream generation outputs (tokens, logprobs, finish reasons) back to queue.
+    rpc StreamOutput (stream RequestOutputChunk) returns (ReportStatusResponse);
+
+    // Abort an in-flight generation task.
+    rpc AbortTask (AbortRequest) returns (AbortResponse);
+}
+
+// Static capabilities and metadata reported during worker registration.
+message WorkerMetadata {
+    string worker_id = 1;
+    string model_name = 2;
+    uint32 max_model_len = 3;
+    uint32 block_size = 4;
+    uint64 kv_cache_size_tokens = 5;
+    uint32 world_size = 6;
+    uint32 data_parallel_size = 7;
+    string vllm_version = 8;
+}
+
+message RegisterWorkerRequest {
+    WorkerMetadata metadata = 1;
+}
+
+message RegisterWorkerResponse {
+    string worker_id = 1;
+    string session_token = 2;
+    uint64 registered_at_unix_s = 3;
+}
+
+// Absolute minimum, non-negotiable metrics for queue routing and OOM prevention.
+message StandardMetrics {
+    uint32 num_running_reqs = 1;
+    uint32 num_waiting_reqs = 2;
+    uint32 free_gpu_kv_blocks = 3;
+    float gpu_kv_cache_usage_pct = 4;
+    bool is_paused = 5;
+    bool is_sleeping = 6;
+}
+
+// Prefix cache hit rates and active radix tree block hashes.
+message PrefixCacheStats {
+    float hit_rate = 1;
+    uint64 queries = 2;
+    uint64 hits = 3;
+    // Active 64-bit block hashes present in worker's KV cache for prefix-aware routing.
+    repeated uint64 active_prefix_hashes = 4;
+}
+
+// Performance and latency metrics.
+message PerfLatencyStats {
+    double avg_time_to_first_token_ms = 1;
+    double avg_inter_token_latency_ms = 2;
+    double e2e_latency_ms = 3;
+}
+
+// Disaggregated KV connector transfer metrics (Mooncake / Nixl / MorIIO).
+message KVConnectorStats {
+    uint64 transferred_bytes = 1;
+    double avg_transfer_latency_ms = 2;
+}
+
+// Speculative decoding acceptance statistics.
+message SpecDecodingStats {
+    float draft_acceptance_rate = 1;
+    uint64 draft_tokens_generated = 2;
+    uint64 draft_tokens_accepted = 3;
+}
+
+// Optional extended metrics taxonomy with extensibility escape hatch.
+message ExtendedMetrics {
+    PrefixCacheStats prefix_cache_stats = 1;
+    PerfLatencyStats perf_latency_stats = 2;
+    KVConnectorStats kv_connector_stats = 3;
+    SpecDecodingStats spec_decoding_stats = 4;
+
+    // Extensibility Escape Hatch: allow custom StatLogger plugins to send arbitrary telemetry
+    map<string, double> custom_metrics = 100;
+    map<string, string> custom_labels = 101;
+}
+
+// Worker status payload reported during status updates and task grants.
+message WorkerStatus {
+    string worker_id = 1;
+    uint64 timestamp_unix_ms = 2;
+    StandardMetrics standard_metrics = 3;
+    ExtendedMetrics extended_metrics = 4;
+}
+
+message ReportStatusResponse {
+    bool acknowledged = 1;
+}
+
+// Credit-granting message sent by worker to pull tasks.
+message TaskGrantRequest {
+    string worker_id = 1;
+    // Number of available batch / request slots worker is ready to execute
+    uint32 slots_available = 2;
+    WorkerStatus current_status = 3;
+}
+
+// Parameters for request generation.
+message SamplingParams {
+    float temperature = 1;
+    float top_p = 2;
+    int32 top_k = 3;
+    int32 max_tokens = 4;
+    repeated string stop = 5;
+    float presence_penalty = 6;
+    float frequency_penalty = 7;
+    float repetition_penalty = 8;
+    int32 min_tokens = 9;
+    int32 n = 10;
+    bool ignore_eos = 11;
+}
+
+message LoRARequest {
+    string lora_name = 1;
+    int32 lora_id = 2;
+    string lora_path = 3;
+}
+
+// Task payload sent by Queue Server to Worker.
+message GenerateRequest {
+    string request_id = 1;
+    string prompt = 2;
+    repeated int32 prompt_token_ids = 3;
+    SamplingParams sampling_params = 4;
+    LoRARequest lora_request = 5;
+    int32 priority = 6;
+    map<string, string> trace_headers = 7;
+}
+
+enum FinishReason {
+    FINISH_REASON_UNSPECIFIED = 0;
+    STOP = 1;
+    LENGTH = 2;
+    ABORT = 3;
+    ERROR = 4;
+    REPETITION = 5;
+}
+
+message LogprobItem {
+    int32 token_id = 1;
+    double logprob = 2;
+    string decoded_token = 3;
+}
+
+message LogprobChunk {
+    repeated LogprobItem logprobs = 1;
+}
+
+// Output chunk streamed from Worker back to Queue Server.
+message RequestOutputChunk {
+    string request_id = 1;
+    repeated int32 new_token_ids = 2;
+    string new_text = 3;
+    FinishReason finish_reason = 4;
+    string stop_reason = 5;
+    repeated LogprobChunk logprobs = 6;
+    string error_message = 7;
+}
+
+message AbortRequest {
+    string request_id = 1;
+    string reason = 2;
+}
+
+message AbortResponse {
+    bool success = 1;
+}
