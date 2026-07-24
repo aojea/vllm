@@ -211,6 +211,11 @@ repos:
     entry: python tools/pre_commit/check_spdx_header.py
     language: python
     types_or: [python, rust, proto]
+  - id: check-proto-sync
+    name: Check Protobuf and generated python sync
+    entry: python tools/pre_commit/check_proto_sync.py
+    language: python
+    files: ^vllm/entrypoints/pull_worker/proto/
   - id: check-root-lazy-imports
     name: Check root lazy imports
     entry: python tools/pre_commit/check_init_lazy_imports.py
